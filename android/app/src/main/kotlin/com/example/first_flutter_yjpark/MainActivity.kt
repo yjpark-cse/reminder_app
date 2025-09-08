@@ -38,6 +38,15 @@ class MainActivity : FlutterActivity() {
                     "listAlarms" -> {
                         result.success(AlarmScheduler.list(this))
                     }
+                    "cancelByMedicine" -> {
+                        val medicineId = call.argument<Int>("medicineId")!!
+                        AlarmScheduler.cancelByMedicineId(this, medicineId)
+                        result.success(true)
+                    }
+                    "rescheduleAll" -> {
+                        AlarmScheduler.rescheduleAll(this)
+                        result.success(true)
+                    }
                     else -> result.notImplemented()
                 }
             }

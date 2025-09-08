@@ -15,8 +15,8 @@ class AlarmReceiver : BroadcastReceiver() {
         NotificationHelper.ensureChannel(context)
         val notif = NotificationHelper.buildNotification(
             context,
-            "약 복용 시간",
-            "${item.label} - 지금 복용할 시간이에요!",
+            "약 복용 알림",
+            "${item.label} - 복용할 시간입니다!",
             id
         )
         NotificationManagerCompat.from(context).notify(id, notif)

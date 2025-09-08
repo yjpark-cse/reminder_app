@@ -61,4 +61,9 @@ object AlarmStore {
     fun remove(context: Context, id: Int) {
         save(context, load(context).filterNot { it.id == id })
     }
+
+    fun removeMany(context: Context, ids: List<Int>) {
+        val all = load(context).filterNot { ids.contains(it.id) }
+        save(context, all)
+    }
 }

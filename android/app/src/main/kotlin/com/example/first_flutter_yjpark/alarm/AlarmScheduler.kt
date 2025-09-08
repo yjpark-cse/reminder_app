@@ -90,4 +90,21 @@ object AlarmScheduler {
         }
         return max(cand.timeInMillis, now.timeInMillis + TimeUnit.SECONDS.toMillis(1))
     }
+
+    //특정 약의 모든 알람 취소
+    fun cancelByMedicineId(context: Context, medicineId: Int) {
+        val all = AlarmStore.load(context)
+        val targets = all.filter { it.id / 100 == medicineId } //같은 약 그룹
+        val mgr = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        targets.forEach { item ->
+            mgr.cancel(
+                PendingIntent.getBroadcast(
+                    context, item.id,
+                    Intent(context, AlarmReceiver::class.java),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            )
+        }
+        AlarmStore.removeMany(context, targets.map { it.id })
+    }
 }

@@ -1,79 +1,147 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../notification_service.dart';
+import 'native_alarm_bridge.dart';
 
 class MedicineRegisterPage extends StatefulWidget {
-  const MedicineRegisterPage({super.key});
+  /// 수정 모드면 두 값을 함께 전달
+  final String? docId;                      // medicines 문서 ID
+  final Map<String, dynamic>? initialData;  // {name, medicineId, times, daysIso, createdAt}
+
+  const MedicineRegisterPage({
+    super.key,
+    this.docId,
+    this.initialData,
+  });
 
   @override
   State<MedicineRegisterPage> createState() => _MedicineRegisterPageState();
 }
 
 class _MedicineRegisterPageState extends State<MedicineRegisterPage> {
-  final TextEditingController _nameController = TextEditingController();
-  final List<TimeOfDay> _times = [];
-  final Set<String> _selectedDays = {};
-  final List<String> _days = ['월', '화', '수', '목', '금', '토', '일'];
+  final TextEditingController _nameCtrl = TextEditingController();
+  final List<TimeOfDay> _times = []; // 여러 복용 시간
+  final Set<int> _daysIso = {};      // 1=Mon..7=Sun
+  int? _medicineId;                  // 수정 모드에서 사용
 
-  void _addTime() async {
-    final picked = await showTimePicker(context: context, initialTime: TimeOfDay.now());
-    if (picked != null && !_times.contains(picked)) {
-      setState(() => _times.add(picked));
+  @override
+  void initState() {
+    super.initState();
+    final m = widget.initialData;
+    if (m != null) {
+      _nameCtrl.text = m['name'] ?? '';
+      _medicineId = m['medicineId'] as int?;
+      final times = (m['times'] as List?) ?? const [];
+      for (final t in times) {
+        _times.add(TimeOfDay(hour: t['hour'] ?? 0, minute: t['minute'] ?? 0));
+      }
+      final di = (m['daysIso'] as List?)?.cast<int>() ?? const [];
+      _daysIso.addAll(di);
     }
   }
 
-  Future<void> _submit() async {
-    final name = _nameController.text.trim();
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    super.dispose();
+  }
 
-    // ✅ 요일은 필수가 아님 (비어 있으면 1회성으로 예약)
+  void _addTime() async {
+    final pick = await showTimePicker(context: context, initialTime: TimeOfDay.now());
+    if (pick != null && !_times.contains(pick)) {
+      setState(() => _times.add(pick));
+    }
+  }
+
+  void _removeTime(int index) {
+    setState(() => _times.removeAt(index));
+  }
+
+  Future<void> _save() async {
+    final name = _nameCtrl.text.trim();
     if (name.isEmpty || _times.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("약 이름과 복용 시간을 입력해주세요.")),
+        const SnackBar(content: Text("약 이름과 복용 시간을 입력하세요.")),
       );
       return;
     }
+    final daysIso = _daysIso.toList()..sort();
 
-    // 알림 예약
-    for (final time in _times) {
-      try {
-        await scheduleMedicineNotification(
-          id: name,
-          title: '$name 복용 시간입니다!',
-          body: '지금 $name을 복용할 시간이에요.',
-          time: time,
-          repeatDays: _selectedDays.toList(), // 비어있으면 1회성
+    await NativeAlarmBridge.requestNotificationPermission();
+
+    if (widget.docId == null) {
+      // 신규 등록
+      final medicineId = DateTime.now().millisecondsSinceEpoch % 1000000;
+
+      // 슬롯별 네이티브 예약 (slot 0..n-1)
+      for (var slot = 0; slot < _times.length; slot++) {
+        final t = _times[slot];
+        await NativeAlarmBridge.scheduleAlarm(
+          id: medicineId * 100 + slot,
+          hour: t.hour,
+          minute: t.minute,
+          label: name,
+          daysOfWeek: daysIso,
         );
-      } catch (e) {
-        debugPrint("알림 예약 실패: $e");
       }
+
+      // Firestore 문서 생성
+      await FirebaseFirestore.instance.collection('medicines').add({
+        'name': name,
+        'medicineId': medicineId,
+        'times': List.generate(_times.length, (i) {
+          final t = _times[i];
+          return {'hour': t.hour, 'minute': t.minute, 'slot': i};
+        }),
+        'daysIso': daysIso,
+        'createdAt': Timestamp.now(),
+      });
+    } else {
+      // 수정 저장
+      final medicineId = _medicineId ?? (DateTime.now().millisecondsSinceEpoch % 1000000);
+
+      // 기존 슬롯 알람 전부 취소
+      await NativeAlarmBridge.cancelByMedicine(medicineId);
+
+      // 현재 입력값 기준 재예약
+      for (var slot = 0; slot < _times.length; slot++) {
+        final t = _times[slot];
+        await NativeAlarmBridge.scheduleAlarm(
+          id: medicineId * 100 + slot,
+          hour: t.hour,
+          minute: t.minute,
+          label: name,
+          daysOfWeek: daysIso,
+        );
+      }
+
+      // Firestore 문서 갱신
+      await FirebaseFirestore.instance.collection('medicines').doc(widget.docId).set({
+        'name': name,
+        'medicineId': medicineId,
+        'times': List.generate(_times.length, (i) {
+          final t = _times[i];
+          return {'hour': t.hour, 'minute': t.minute, 'slot': i};
+        }),
+        'daysIso': daysIso,
+        'createdAt': widget.initialData?['createdAt'] ?? Timestamp.now(),
+      }, SetOptions(merge: true));
     }
 
-    // Firebase 저장 (요일이 비어있어도 그대로 저장)
-    await FirebaseFirestore.instance.collection('medicines').add({
-      'name': name,
-      'times': _times.map((t) => t.format(context)).toList(),
-      'days': _selectedDays.toList(), // [] 일 수 있음
-      'taken': {},
-      'createdAt': Timestamp.now(),
-    });
-
-    if (mounted) Navigator.pop(context);
-  }
-
-  Future<void> _testImmediateNotification() async {
-    await NotificationService_showImmediateTest();
+    if (!mounted) return;
+    Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
+    const dayLabels = ['월','화','수','목','금','토','일'];
     return Scaffold(
-      appBar: AppBar(title: const Text("약 등록")),
+      appBar: AppBar(title: Text(widget.docId == null ? '약 등록' : '약 수정')),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
             TextField(
-              controller: _nameController,
+              controller: _nameCtrl,
               decoration: const InputDecoration(labelText: "약 이름"),
             ),
             const SizedBox(height: 12),
@@ -84,67 +152,40 @@ class _MedicineRegisterPageState extends State<MedicineRegisterPage> {
               ],
             ),
             Wrap(
-              spacing: 10,
-              children: _times.map((t) => Chip(label: Text(t.format(context)))).toList(),
+              spacing: 8,
+              children: List.generate(_times.length, (i) {
+                final t = _times[i];
+                return InputChip(
+                  label: Text(t.format(context)),
+                  onDeleted: () => _removeTime(i),
+                );
+              }),
             ),
             const SizedBox(height: 12),
-
-            // 요일 선택 (선택 사항)
-            Align(
+            const Align(
               alignment: Alignment.centerLeft,
-              child: Text(
-                "반복 요일 (선택) — 선택하지 않으면 1회성 알림으로 등록됩니다.",
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
+              child: Text('반복 요일', style: TextStyle(fontWeight: FontWeight.bold)),
             ),
-            const SizedBox(height: 8),
             Wrap(
               spacing: 8,
-              children: _days.map((d) {
-                final selected = _selectedDays.contains(d);
+              children: List.generate(7, (i) {
+                final iso = i + 1;
+                final sel = _daysIso.contains(iso);
                 return ChoiceChip(
-                  label: Text(d),
-                  selected: selected,
+                  label: Text(dayLabels[i]),
+                  selected: sel,
                   onSelected: (_) {
                     setState(() {
-                      selected ? _selectedDays.remove(d) : _selectedDays.add(d);
+                      sel ? _daysIso.remove(iso) : _daysIso.add(iso);
                     });
                   },
                 );
-              }).toList(),
+              }),
             ),
-
             const Spacer(),
-
-            OutlinedButton(
-              onPressed: _testImmediateNotification,
-              child: const Text("즉시 알림 테스트"),
-            ),
-            const SizedBox(height: 8),
-
-            const SizedBox(height: 8),
-
-// ✅ 디버그 버튼 모음 (개발 중에만 쓰세요)
-            OutlinedButton(
-              onPressed: debugPrintPending,
-              child: const Text("현재 예약 목록 보기"),
-            ),
-            const SizedBox(height: 8),
-            OutlinedButton(
-              onPressed: NotificationService_cancelAll,
-              child: const Text("모든 예약 취소"),
-            ),
-            const SizedBox(height: 8),
-            OutlinedButton(
-              onPressed: debugOneShotIn120s_alarmClock,
-              child: const Text("2분 뒤 테스트 알림 예약"),
-            ),
-
-            const SizedBox(height: 8),
-
-            ElevatedButton(
-              onPressed: _submit,
-              child: const Text("저장하기"),
+            FilledButton(
+              onPressed: _save,
+              child: Text(widget.docId == null ? '저장하기' : '수정 저장'),
             ),
           ],
         ),
