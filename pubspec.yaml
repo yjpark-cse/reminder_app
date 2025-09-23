@@ -33,8 +33,10 @@ dependencies:
   fluttertoast: ^8.2.1
   firebase_core: ^2.16.0
   cloud_firestore: ^4.5.0
+  firebase_storage: ^11.2.8
 
   image_picker: ^1.1.0
+  http: ^1.2.2
 
   home_widget: 0.4.0
   shared_preferences: ^2.2.2

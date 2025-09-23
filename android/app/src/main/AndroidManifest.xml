@@ -4,10 +4,27 @@
     <!-- 부팅 후 알람 재등록을 위한 권한 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- 카메라 권한 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <!-- Android 13+ 이미지 접근 권한 -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+
+    <!-- Android 12 이하 저장소 접근 권한 -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+
+    <!-- Android 인터넷 허용 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- usesCleartextTraffic="true"는 개발용, 배포시에는 제거후 https 권장 -->
     <application
         android:label="first_flutter_yjpark"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+
+        android:usesCleartextTraffic="true"
+        >
 
         <!-- 위젯 수신기 등록 -->
         <receiver android:name=".WidgetProvider" android:exported="true">
