@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'native_alarm_bridge.dart';
 
 class MedicineRegisterPage extends StatefulWidget {
   /// 수정 모드면 두 값을 함께 전달
-  final String? docId;                      // medicines 문서 ID
+  final String? docId;                      // users/{uid}/medicines/{docId}
   final Map<String, dynamic>? initialData;  // {name, medicineId, times, daysIso, createdAt}
 
   const MedicineRegisterPage({
@@ -32,7 +33,10 @@ class _MedicineRegisterPageState extends State<MedicineRegisterPage> {
       _medicineId = m['medicineId'] as int?;
       final times = (m['times'] as List?) ?? const [];
       for (final t in times) {
-        _times.add(TimeOfDay(hour: t['hour'] ?? 0, minute: t['minute'] ?? 0));
+        _times.add(TimeOfDay(
+          hour: (t['hour'] ?? 0) as int,
+          minute: (t['minute'] ?? 0) as int,
+        ));
       }
       final di = (m['daysIso'] as List?)?.cast<int>() ?? const [];
       _daysIso.addAll(di);
@@ -45,8 +49,11 @@ class _MedicineRegisterPageState extends State<MedicineRegisterPage> {
     super.dispose();
   }
 
-  void _addTime() async {
-    final pick = await showTimePicker(context: context, initialTime: TimeOfDay.now());
+  Future<void> _addTime() async {
+    final pick = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+    );
     if (pick != null && !_times.contains(pick)) {
       setState(() => _times.add(pick));
     }
@@ -68,6 +75,16 @@ class _MedicineRegisterPageState extends State<MedicineRegisterPage> {
 
     await NativeAlarmBridge.requestNotificationPermission();
 
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      // 익명 로그인 등 선행되어야 함
+      await FirebaseAuth.instance.signInAnonymously();
+    }
+    final realUid = FirebaseAuth.instance.currentUser!.uid;
+    final medsCol = FirebaseFirestore.instance
+        .collection('users').doc(realUid)
+        .collection('medicines');
+
     if (widget.docId == null) {
       // 신규 등록
       final medicineId = DateTime.now().millisecondsSinceEpoch % 1000000;
@@ -84,8 +101,8 @@ class _MedicineRegisterPageState extends State<MedicineRegisterPage> {
         );
       }
 
-      // Firestore 문서 생성
-      await FirebaseFirestore.instance.collection('medicines').add({
+      // Firestore 문서 생성 (users/{uid}/medicines)
+      await medsCol.add({
         'name': name,
         'medicineId': medicineId,
         'times': List.generate(_times.length, (i) {
@@ -94,15 +111,15 @@ class _MedicineRegisterPageState extends State<MedicineRegisterPage> {
         }),
         'daysIso': daysIso,
         'createdAt': Timestamp.now(),
+        'ownerUid': realUid, // (선택) 쿼리 편의용
       });
     } else {
       // 수정 저장
-      final medicineId = _medicineId ?? (DateTime.now().millisecondsSinceEpoch % 1000000);
+      final medicineId =
+          _medicineId ?? (DateTime.now().millisecondsSinceEpoch % 1000000);
 
-      // 기존 슬롯 알람 전부 취소
+      // 기존 슬롯 알람 전부 취소 후 재예약
       await NativeAlarmBridge.cancelByMedicine(medicineId);
-
-      // 현재 입력값 기준 재예약
       for (var slot = 0; slot < _times.length; slot++) {
         final t = _times[slot];
         await NativeAlarmBridge.scheduleAlarm(
@@ -114,8 +131,8 @@ class _MedicineRegisterPageState extends State<MedicineRegisterPage> {
         );
       }
 
-      // Firestore 문서 갱신
-      await FirebaseFirestore.instance.collection('medicines').doc(widget.docId).set({
+      // Firestore 문서 갱신 (users/{uid}/medicines/{docId})
+      await medsCol.doc(widget.docId).set({
         'name': name,
         'medicineId': medicineId,
         'times': List.generate(_times.length, (i) {
@@ -124,6 +141,7 @@ class _MedicineRegisterPageState extends State<MedicineRegisterPage> {
         }),
         'daysIso': daysIso,
         'createdAt': widget.initialData?['createdAt'] ?? Timestamp.now(),
+        'ownerUid': realUid,
       }, SetOptions(merge: true));
     }
 
