@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'config.dart';
 
 class DietPage extends StatefulWidget {
   const DietPage({super.key});
@@ -15,10 +16,6 @@ class DietPage extends StatefulWidget {
 }
 
 class _DietPageState extends State<DietPage> {
-  // ===== 서버 주소 =====
-  // 에뮬레이터: http://10.0.2.2:8787
-  // 실기기(같은 Wi-Fi): http://<PC-IP>:8787
-  static const String BASE_URL = 'http://10.0.2.2:8787';
 
   final _picker = ImagePicker();
   File? _selectedImage;
@@ -81,7 +78,7 @@ class _DietPageState extends State<DietPage> {
     setState(() => _gptLoading = true);
     try {
       final resp = await http.post(
-        Uri.parse('$BASE_URL/calc-calories'),
+        Uri.parse('$serverUrl/calc-calories'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'foods': foodsText,

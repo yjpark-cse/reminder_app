@@ -45,7 +45,6 @@ class _HomeScreenState extends State<HomeScreen> {
             _buildCard(
               context,
               title: '오늘의 식단',
-              subtitle: '3끼 중 $_dietCount끼 기록',
               icon: Icons.restaurant_menu,
               iconColor: Colors.orange[200]!,
               onTap: () async {
@@ -59,7 +58,6 @@ class _HomeScreenState extends State<HomeScreen> {
             _buildCard(
               context,
               title: '약',
-              subtitle: _medicineTaken ? '복용 완료' : '복용 예정 있음',
               icon: Icons.medical_services,
               iconColor: Colors.lightGreen[200]!,
               onTap: () async {
@@ -73,10 +71,8 @@ class _HomeScreenState extends State<HomeScreen> {
             _buildCard(
               context,
               title: '물 마시기',
-              subtitle: '$_waterCups / 20잔',
               icon: Icons.water_drop,
               iconColor: Colors.blue[200]!,
-              progress: _waterCups / 20,
               onTap: () async {
                 await Navigator.push(
                   context,
@@ -95,7 +91,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildCard(
       BuildContext context, {
         required String title,
-        required String subtitle,
         required IconData icon,
         required Color iconColor,
         required VoidCallback onTap,
@@ -130,8 +125,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         style: const TextStyle(
                             fontSize: 18, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 4),
-                    Text(subtitle,
-                        style: const TextStyle(fontSize: 14, color: Colors.grey)),
                     if (progress != null) ...[
                       const SizedBox(height: 8),
                       LinearProgressIndicator(
