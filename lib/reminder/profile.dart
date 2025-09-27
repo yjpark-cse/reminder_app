@@ -1,9 +1,8 @@
-// profile.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// 활동 수준
+// 활동 수준
 enum ActivityLevel { sedentary, light, moderate, active, veryActive }
 
 extension ActivityLevelX on ActivityLevel {
@@ -40,7 +39,7 @@ extension ActivityLevelX on ActivityLevel {
   };
 }
 
-/// 성별(기본값 없음) — 필수 입력
+// 성별(기본값 없음)
 enum Sex { male, female }
 extension SexX on Sex {
   String get labelKo => this == Sex.male ? '남성' : '여성';
@@ -72,7 +71,7 @@ class UserProfile {
     'updated_at': FieldValue.serverTimestamp(),
   };
 
-  /// Firestore 문서 파싱(필수값 없으면 null → 편집 시트 유도)
+  // Firestore 문서 파싱(필수값 없으면 편집 시트 유도)
   static UserProfile? fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final d = doc.data();
     if (d == null) return null;
@@ -84,7 +83,7 @@ class UserProfile {
     final sex = d['sex'];
     if (age is! num || height is! num || weight is! num) return null;
     if (age <= 0 || height <= 0 || weight <= 0) return null;
-    if (act is! String || sex is! String) return null; // 성별/활동수준 필수
+    if (act is! String || sex is! String) return null;
 
     return UserProfile(
       age: age.toInt(),
@@ -95,7 +94,6 @@ class UserProfile {
     );
   }
 
-  // 편의 지표
   double get bmi {
     final m = heightCm / 100.0;
     return weightKg / (m * m);
@@ -103,20 +101,20 @@ class UserProfile {
 
   double get bmr {
     final base = 10 * weightKg + 6.25 * heightCm - 5 * age;
-    return sex == Sex.male ? base + 5 : base - 161; // Mifflin–St Jeor
+    return sex == Sex.male ? base + 5 : base - 161;
   }
 
   double get tdee => bmr * activityLevel.factor;
 }
 
-/// Firestore 경로 헬퍼 (users/{uid}/profile/main)
+// Firestore 경로 헬퍼 (users/{uid}/profile/main)
 DocumentReference<Map<String, dynamic>> profileRef(
     FirebaseFirestore db,
     String uid,
     ) =>
     db.collection('users').doc(uid).collection('profile').doc('main');
 
-/// 프로필 저장/로드/캐시 레포지토리
+// 프로필 저장/로드/캐시 저장소
 class ProfileRepository {
   final FirebaseFirestore db;
   ProfileRepository(this.db);
@@ -160,7 +158,7 @@ class ProfileRepository {
   }
 }
 
-/// 프로필 편집 바텀시트 (기존값 프리필)
+// 프로필 편집 바텀시트 (기존값 보이도록)
 class ProfileEditorSheet extends StatefulWidget {
   final UserProfile? initial;
   const ProfileEditorSheet({super.key, this.initial});

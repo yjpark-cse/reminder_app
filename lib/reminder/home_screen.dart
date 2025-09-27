@@ -44,7 +44,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 100),
             _buildCard(
               context,
-              title: '오늘의 식단',
+              title: '오늘의 식단 기록',
               icon: Icons.restaurant_menu,
               iconColor: Colors.orange[200]!,
               onTap: () async {
@@ -57,7 +57,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             _buildCard(
               context,
-              title: '약',
+              title: '약 복용 관리',
               icon: Icons.medical_services,
               iconColor: Colors.lightGreen[200]!,
               onTap: () async {

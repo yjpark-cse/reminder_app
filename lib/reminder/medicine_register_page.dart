@@ -4,7 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'native_alarm_bridge.dart';
 
 class MedicineRegisterPage extends StatefulWidget {
-  /// 수정 모드면 두 값을 함께 전달
+  // 수정 모드면 두 값을 함께 전달
   final String? docId;                      // users/{uid}/medicines/{docId}
   final Map<String, dynamic>? initialData;  // {name, medicineId, times, daysIso, createdAt}
 
@@ -21,7 +21,7 @@ class MedicineRegisterPage extends StatefulWidget {
 class _MedicineRegisterPageState extends State<MedicineRegisterPage> {
   final TextEditingController _nameCtrl = TextEditingController();
   final List<TimeOfDay> _times = []; // 여러 복용 시간
-  final Set<int> _daysIso = {};      // 1=Mon..7=Sun
+  final Set<int> _daysIso = {};      // 1=월요일 ~ 7=일요일
   int? _medicineId;                  // 수정 모드에서 사용
 
   @override
@@ -77,7 +77,7 @@ class _MedicineRegisterPageState extends State<MedicineRegisterPage> {
 
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) {
-      // 익명 로그인 등 선행되어야 함
+      // 익명 로그인
       await FirebaseAuth.instance.signInAnonymously();
     }
     final realUid = FirebaseAuth.instance.currentUser!.uid;
@@ -89,7 +89,7 @@ class _MedicineRegisterPageState extends State<MedicineRegisterPage> {
       // 신규 등록
       final medicineId = DateTime.now().millisecondsSinceEpoch % 1000000;
 
-      // 슬롯별 네이티브 예약 (slot 0..n-1)
+      // 슬롯별 네이티브 예약
       for (var slot = 0; slot < _times.length; slot++) {
         final t = _times[slot];
         await NativeAlarmBridge.scheduleAlarm(
@@ -111,7 +111,7 @@ class _MedicineRegisterPageState extends State<MedicineRegisterPage> {
         }),
         'daysIso': daysIso,
         'createdAt': Timestamp.now(),
-        'ownerUid': realUid, // (선택) 쿼리 편의용
+        'ownerUid': realUid,
       });
     } else {
       // 수정 저장

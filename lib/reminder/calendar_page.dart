@@ -58,7 +58,7 @@ class _CalendarPageState extends State<CalendarPage> {
     final fs = FirebaseFirestore.instance;
     final userRef = fs.collection('users').doc(_uid);
 
-    // --- water ---
+    // water
     final waterSnap = await userRef.collection('water_records').get();
     final waterMap = <String, int>{};
     for (final doc in waterSnap.docs) {
@@ -66,7 +66,7 @@ class _CalendarPageState extends State<CalendarPage> {
       waterMap[doc.id] = (data['count'] ?? 0) as int;
     }
 
-    // --- medicines ---
+    // medicines
     final medSnap = await userRef.collection('medicines').get();
     final allMeds = <Map<String, dynamic>>[];
     final medMapByDate = <String, List<Map<String, dynamic>>>{};
@@ -99,7 +99,7 @@ class _CalendarPageState extends State<CalendarPage> {
       });
     }
 
-    // --- diet (entries: 새 스키마 totalKcal 사용) ---
+    // diet
     final dietMap = <String, List<Map<String, dynamic>>>{};
     final entriesSnap = await fs.collectionGroup('entries').get();
     for (final e in entriesSnap.docs) {
@@ -113,7 +113,7 @@ class _CalendarPageState extends State<CalendarPage> {
       (dietMap[dateKey] ??= []).add({
         'mealType': ed['mealType'] ?? 'meal',
         'foods': (ed['foods'] as List?)?.cast<String>() ?? const <String>[],
-        'totalKcal': ed['totalKcal'], // 🔑 단일 키
+        'totalKcal': ed['totalKcal'],
       });
     }
 
@@ -251,7 +251,7 @@ class _CalendarPageState extends State<CalendarPage> {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             if (hasWater) const Icon(Icons.opacity, size: 12),
-                            if (hasTakenMeds) const Icon(Icons.verified, size: 12),
+                            if (hasTakenMeds) const Icon(Icons.medication, size: 12),
                             if (hasDiet) const Icon(Icons.restaurant, size: 12),
                           ],
                         ),

@@ -76,7 +76,7 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
     final result = await showModalBottomSheet<UserProfile>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => ProfileEditorSheet(initial: _profile), // 기존값 프리필
+      builder: (_) => ProfileEditorSheet(initial: _profile), // 기존값 불러오기
     );
 
     if (result != null) {
@@ -136,7 +136,7 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // 기존 탭들
+
     final List<Widget> pages = <Widget>[
       HomeScreen(userName: widget.userName),
       const AICoachPage(),
@@ -183,7 +183,7 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
         children: [
           pages[_selectedIndex],
 
-          // 홈 화면일 때만 좌측 상단 햄버거는 기존처럼 유지
+          // 홈 화면일 때만 좌측 상단 햄버거 유지
           if (_selectedIndex == 0)
             Positioned(
               top: MediaQuery.of(context).padding.top + 8,
@@ -196,7 +196,7 @@ class _MainHomeScreenState extends State<MainHomeScreen> {
               ),
             ),
 
-          // 홈 화면일 때만 우측 상단 "내 정보" 버튼(사람 아이콘) 추가
+          // 홈 화면일 때만 우측 상단 내 정보 버튼(사람 아이콘) 추가
           if (_selectedIndex == 0)
             Positioned(
               top: MediaQuery.of(context).padding.top + 8,

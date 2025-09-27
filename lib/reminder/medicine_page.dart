@@ -18,8 +18,8 @@ Future<String> _ensureUid() async {
   return auth.currentUser!.uid;
 }
 
-/// 오늘 날짜 기준 각 약의 각 슬롯에 대한 체크 상태를 브로드캐스트 스트림으로 제공.
-/// key: '${docId}_$slot'  value: true/false
+// 오늘 날짜 기준 각 약의 각 슬롯에 대한 체크 상태를 브로드캐스트 스트림으로 제공.
+// key: '${docId}_$slot'  value: true/false
 Stream<Map<String, bool>> _watchTodayChecks(String uid) {
   final today = _dateKey(DateTime.now());
   return FirebaseFirestore.instance
@@ -45,12 +45,12 @@ Stream<Map<String, bool>> _watchTodayChecks(String uid) {
   }).asBroadcastStream();
 }
 
-/// taken.{yyyy-MM-dd}.{HH:mm} = checked 로 저장/해제
+// taken.{yyyy-MM-dd}.{HH:mm} = checked 로 저장/해제
 Future<void> _setTaken({
   required String uid,
-  required String docId, // users/{uid}/medicines/{docId}
+  required String docId,
   required DateTime date,
-  required String hhmm,  // "14:40"
+  required String hhmm,
   required bool checked,
 }) async {
   final day = _dateKey(date);
@@ -88,7 +88,7 @@ class _MedicinePageState extends State<MedicinePage> {
     _setupMidnightInvalidate();
   }
 
-  /// 00:00에 화면 갱신(오늘 날짜 바뀔 때 셀 상태가 자동 반영되도록)
+  // 00:00에 화면 갱신(날짜 바뀔 때 상태가 자동 반영되도록)
   void _setupMidnightInvalidate() {
     _midnightTimer?.cancel();
     final now = DateTime.now();
@@ -132,9 +132,8 @@ class _MedicinePageState extends State<MedicinePage> {
     required int medicineId,
     required String name,
   }) async {
-    // 네이티브 알람 전부 취소
+    // 알람 전부 취소
     await NativeAlarmBridge.cancelByMedicine(medicineId);
-    // 유저 스코프 문서 삭제
     final uid = _uid!;
     await FirebaseFirestore.instance
         .collection('users').doc(uid)
@@ -153,7 +152,7 @@ class _MedicinePageState extends State<MedicinePage> {
     }
     final uid = _uid!;
 
-    // 유저 스코프 약 목록
+    // 약 목록
     final medsStream = FirebaseFirestore.instance
         .collection('users').doc(uid)
         .collection('medicines')

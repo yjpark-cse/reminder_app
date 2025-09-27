@@ -15,7 +15,7 @@ class WaterPage extends StatefulWidget {
 
 class _WaterPageState extends State<WaterPage> {
   int _counter = 0;
-  int _goal = 8; // 기본 목표: 8잔
+  int _goal = 8; // 기본 목표 8잔
   String? _uid;
   Timer? _midnightTimer;
 
@@ -49,7 +49,7 @@ class _WaterPageState extends State<WaterPage> {
     _uid = auth.currentUser!.uid;
   }
 
-  /// 앱 실행 시/재개 시 호출: Prefs/Widget/Firestore를 동기화해서 현재값 반영
+  // 앱 실행 시/재개 시 호출: Prefs/Widget/Firestore를 동기화해서 현재값 반영
   Future<void> _loadAll() async {
     final prefs = await SharedPreferences.getInstance();
 
@@ -101,7 +101,7 @@ class _WaterPageState extends State<WaterPage> {
     setState(() {});
   }
 
-  /// 자정(기기 시간대) 리셋 타이머: 00:00에 0으로 저장 + 위젯/Firestore 반영
+  // 자정 리셋 타이머: 00:00에 0으로 저장 + 위젯, Firestore 반영
   void _scheduleMidnightReset() {
     _midnightTimer?.cancel();
     final now = DateTime.now();
@@ -109,22 +109,20 @@ class _WaterPageState extends State<WaterPage> {
     _midnightTimer = Timer(nextMidnight.difference(now), () async {
       _counter = 0;
       setState(() {});
-      await updateAppWidget();        // 위젯/Firestore/Prefs 동시 반영
-      _scheduleMidnightReset();       // 다음 자정 예약
+      await updateAppWidget();
+      _scheduleMidnightReset(); // 다음 자정 예약
     });
   }
 
-  /// 위젯/Prefs/유저별 Firestore에 동시 반영
   Future<void> updateAppWidget() async {
     final prefs = await SharedPreferences.getInstance();
     final today = _todayKey();
 
-    // Prefs
     await prefs.setInt('water_goal', _goal);
     await prefs.setString('last_water_date', today);
     await prefs.setInt('_counter', _counter);
 
-    // HomeWidget 저장 & 새로고침
+    // HomeWidget 저장 및 새로고침
     await HomeWidget.saveWidgetData<int>('_counter', _counter);
     await HomeWidget.updateWidget(name: 'WidgetProvider');
 
@@ -137,7 +135,7 @@ class _WaterPageState extends State<WaterPage> {
         'count': _counter,
         'goal': _goal,
         'updatedAt': FieldValue.serverTimestamp(),
-        'ownerUid': _uid, // 선택: 쿼리 편의용
+        'ownerUid': _uid,
       }, SetOptions(merge: true));
     }
   }

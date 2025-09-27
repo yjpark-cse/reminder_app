@@ -14,7 +14,7 @@ class DietPage extends StatefulWidget {
 
 class _DietPageState extends State<DietPage> {
   final _foodsController = TextEditingController();
-  final _manualKcalC = TextEditingController(); // 총 칼로리(수동/AI 버튼으로 채움)
+  final _manualKcalC = TextEditingController(); // 총 칼로리(수동/AI 버튼)
 
   String _mealType = 'breakfast'; // breakfast | lunch | dinner | snack
   DateTime _selectedDate = DateTime.now();
@@ -47,7 +47,7 @@ class _DietPageState extends State<DietPage> {
     if (picked != null) setState(() => _selectedDate = picked);
   }
 
-  // ===== [AI로 채우기] — 서버 호출해서 total_kcal을 칼로리 입력란에 채움 =====
+  // AI로 채우기 — 서버 호출해서 total_kcal을 칼로리 입력란에 채움
   Future<void> _runAiEstimation() async {
     final foodsText = _foodsController.text.trim();
     if (foodsText.isEmpty) {
@@ -95,7 +95,7 @@ class _DietPageState extends State<DietPage> {
     }
   }
 
-  // ===== 저장: 총칼로리 입력란의 숫자만 사용 =====
+  // 저장: 총칼로리 입력란의 숫자만 사용
   Future<void> _saveMeal() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -138,8 +138,6 @@ class _DietPageState extends State<DietPage> {
         'foods': foods,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
-
-        // 단일 키 스키마
         'totalKcal': totalKcal,
         'kcalSource': _totalFromAI ? 'ai' : 'manual',
       };
@@ -170,7 +168,7 @@ class _DietPageState extends State<DietPage> {
     }
   }
 
-  // ===== 입력 칩 미리보기 =====
+  // 입력 칩 미리보기
   Widget _foodsChipsPreview() {
     final foods = _foodsController.text
         .split(',')
@@ -201,7 +199,7 @@ class _DietPageState extends State<DietPage> {
     );
   }
 
-  // ===== UI 파츠 =====
+  // UI
   Widget _mealTypeChips() {
     final types = {
       'breakfast': '아침',
@@ -292,7 +290,7 @@ class _DietPageState extends State<DietPage> {
                     ),
                     const SizedBox(height: 8),
                     _foodsChipsPreview(),
-                    const SizedBox(height: 16), // 3) 총 칼로리 입력 (suffix에 "AI로 채우기", helperText에 상태)
+                    const SizedBox(height: 16),
                     TextField(
                       controller: _manualKcalC,
                       keyboardType: const TextInputType.numberWithOptions(decimal: false),
@@ -319,7 +317,7 @@ class _DietPageState extends State<DietPage> {
                         if (_totalFromAI) setState(() => _totalFromAI = false);
                       },
                     ),
-                    const SizedBox(height: 20), // 4) 저장 버튼(전체 폭)
+                    const SizedBox(height: 20),
                     SizedBox(
                       width: double.infinity,
                       height: 48,
@@ -347,7 +345,7 @@ class _DietPageState extends State<DietPage> {
   }
 }
 
-/// 오늘(선택 날짜)의 총 칼로리 배지 — totalKcal만 사용
+//선택 날짜의 총 칼로리
 class _DailyTotalKcalBadge extends StatelessWidget {
   final DateTime date;
   const _DailyTotalKcalBadge({required this.date});
@@ -401,7 +399,7 @@ class _DailyTotalKcalBadge extends StatelessWidget {
   }
 }
 
-/// 같은 날짜의 기록 + 삭제 기능 — totalKcal만 사용
+// 같은 날짜의 기록 + 삭제 기능
 class _TodayEntriesPreview extends StatelessWidget {
   final DateTime date;
   const _TodayEntriesPreview({required this.date});
@@ -487,7 +485,7 @@ class _TodayEntriesPreview extends StatelessWidget {
               final mealType = (data['mealType'] as String?) ?? 'meal';
               final total = data['totalKcal'];
               final docId = d.id;
-              final source = (data['kcalSource'] as String?); // manual | ai
+              final source = (data['kcalSource'] as String?);
 
               return Dismissible(
                 key: ValueKey(docId),
