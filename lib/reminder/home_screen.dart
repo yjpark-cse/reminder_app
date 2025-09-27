@@ -44,7 +44,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 100),
             _buildCard(
               context,
-              title: '오늘의 식단 기록',
+              title: '식단 기록',
               icon: Icons.restaurant_menu,
               iconColor: Colors.orange[200]!,
               onTap: () async {
