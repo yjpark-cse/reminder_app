@@ -53,9 +53,6 @@ class _CalendarPageState extends State<CalendarPage> {
     return '${h.toString().padLeft(2, '0')}:${mi.toString().padLeft(2, '0')}';
   }
 
-  bool _matchesDaysIso(DateTime d, List daysIso) =>
-      daysIso.map((e) => e as int).contains(d.weekday);
-
   Future<void> _loadAllRecords() async {
     if (_uid == null) return;
     final fs = FirebaseFirestore.instance;
@@ -102,12 +99,13 @@ class _CalendarPageState extends State<CalendarPage> {
       });
     }
 
-    // --- diet (collectionGroup: 부모 날짜 문서 없어도 OK) ---
+    // --- diet (entries: 새 스키마 totalKcal 사용) ---
     final dietMap = <String, List<Map<String, dynamic>>>{};
     final entriesSnap = await fs.collectionGroup('entries').get();
     for (final e in entriesSnap.docs) {
       final path = e.reference.path; // users/{uid}/diet/{dateKey}/entries/{id}
       if (!path.startsWith('users/${_uid!}/diet/')) continue;
+
       final ed = e.data();
       final String dateKey = (ed['dateKey'] as String?) ??
           DateFormat('yyyy-MM-dd').format((ed['date'] as Timestamp).toDate());
@@ -115,8 +113,7 @@ class _CalendarPageState extends State<CalendarPage> {
       (dietMap[dateKey] ??= []).add({
         'mealType': ed['mealType'] ?? 'meal',
         'foods': (ed['foods'] as List?)?.cast<String>() ?? const <String>[],
-        'calories': ed['gptTotalKcal'] ?? 0,
-        'photoUrl': ed['photoUrl'],
+        'totalKcal': ed['totalKcal'], // 🔑 단일 키
       });
     }
 
@@ -143,25 +140,10 @@ class _CalendarPageState extends State<CalendarPage> {
   bool _hasDiet(String dateKey) =>
       (_dietRecords[dateKey] ?? const []).isNotEmpty;
 
-  List<Map<String, dynamic>> _takenMedsForDay(String dateKey) {
-    final list = _medicineRecords[dateKey] ?? const [];
-    final result = <Map<String, dynamic>>[];
-    for (final m in list) {
-      final name = m['name'];
-      final times = List<String>.from((m['times'] ?? const []) as List);
-      final takenMap = Map<String, dynamic>.from((m['takenMap'] ?? {}) as Map);
-      final takenTimes = times.where((t) => takenMap[t] == true).toList();
-      if (takenTimes.isNotEmpty) {
-        result.add({'docId': m['docId'], 'name': name, 'times': takenTimes});
-      }
-    }
-    return result;
-  }
-
-  num _sumCalories(List<Map<String, dynamic>> items) {
+  num _sumTotalKcal(List<Map<String, dynamic>> items) {
     num total = 0;
     for (final it in items) {
-      final c = it['calories'];
+      final c = it['totalKcal'];
       if (c is int) total += c;
       if (c is double) total += c;
       if (c is String) {
@@ -344,7 +326,7 @@ class _CalendarPageState extends State<CalendarPage> {
       ));
     }
 
-    // 약 (읽기 전용: 복용 완료 시간만)
+    // 약 (읽기 전용)
     if (takenMeds.isNotEmpty) {
       tiles.addAll(takenMeds.map((m) {
         final times = List<String>.from((m['times'] ?? const []) as List);
@@ -370,9 +352,9 @@ class _CalendarPageState extends State<CalendarPage> {
       }));
     }
 
-    // 식단: 눌러서(확장) 상세 음식 목록 표시
+    // 식단
     if (diet != null && diet.isNotEmpty) {
-      final total = _sumCalories(diet);
+      final total = _sumTotalKcal(diet);
       tiles.add(
         Card(
           child: ExpansionTile(
@@ -385,10 +367,13 @@ class _CalendarPageState extends State<CalendarPage> {
               ...diet.map((it) {
                 final mealType = (it['mealType'] as String?) ?? 'meal';
                 final foods = (it['foods'] as List?)?.cast<String>() ?? const <String>[];
-                final cal = it['calories'];
-                final kcal = cal == null
-                    ? ''
-                    : (cal is num ? '${cal.toStringAsFixed(0)} kcal' : '$cal kcal');
+                final cal = it['totalKcal'];
+                String kcal = '';
+                if (cal is num) {
+                  kcal = '${cal.toStringAsFixed(0)} kcal';
+                } else if (cal is String && cal.isNotEmpty) {
+                  kcal = '$cal kcal';
+                }
 
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 8),
@@ -433,5 +418,20 @@ class _CalendarPageState extends State<CalendarPage> {
     }
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: tiles);
+  }
+
+  List<Map<String, dynamic>> _takenMedsForDay(String dateKey) {
+    final list = _medicineRecords[dateKey] ?? const [];
+    final result = <Map<String, dynamic>>[];
+    for (final m in list) {
+      final name = m['name'];
+      final times = List<String>.from((m['times'] ?? const []) as List);
+      final takenMap = Map<String, dynamic>.from((m['takenMap'] ?? {}) as Map);
+      final takenTimes = times.where((t) => takenMap[t] == true).toList();
+      if (takenTimes.isNotEmpty) {
+        result.add({'docId': m['docId'], 'name': name, 'times': takenTimes});
+      }
+    }
+    return result;
   }
 }

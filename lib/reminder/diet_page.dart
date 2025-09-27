@@ -1,10 +1,7 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'config.dart';
 
@@ -16,22 +13,20 @@ class DietPage extends StatefulWidget {
 }
 
 class _DietPageState extends State<DietPage> {
-
-  final _picker = ImagePicker();
-  File? _selectedImage;
-
   final _foodsController = TextEditingController();
+  final _manualKcalC = TextEditingController(); // 총 칼로리(수동/AI 버튼으로 채움)
 
   String _mealType = 'breakfast'; // breakfast | lunch | dinner | snack
   DateTime _selectedDate = DateTime.now();
 
   bool _saving = false;
-  bool _gptLoading = false;
-  Map<String, dynamic>? _gptJson; // {items:[{name, grams, kcal}], total_kcal}
+  bool _aiLoading = false;
+  bool _totalFromAI = false; // 총칼로리가 AI로 채워졌는지 표시
 
   @override
   void dispose() {
     _foodsController.dispose();
+    _manualKcalC.dispose();
     super.dispose();
   }
 
@@ -40,14 +35,6 @@ class _DietPageState extends State<DietPage> {
     final m = d.month.toString().padLeft(2, '0');
     final day = d.day.toString().padLeft(2, '0');
     return '$y-$m-$day';
-  }
-
-  Future<void> _pickImage(ImageSource source) async {
-    final XFile? pickedFile =
-    await _picker.pickImage(source: source, imageQuality: 90);
-    if (pickedFile != null) {
-      setState(() => _selectedImage = File(pickedFile.path));
-    }
   }
 
   Future<void> _pickDate() async {
@@ -60,22 +47,17 @@ class _DietPageState extends State<DietPage> {
     if (picked != null) setState(() => _selectedDate = picked);
   }
 
-  // ===== 저장 전: 반드시 GPT 칼로리 추정 보장 =====
-  Future<bool> _ensureGptKcal() async {
+  // ===== [AI로 채우기] — 서버 호출해서 total_kcal을 칼로리 입력란에 채움 =====
+  Future<void> _runAiEstimation() async {
     final foodsText = _foodsController.text.trim();
-
     if (foodsText.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('먹은 음식을 입력해 주세요. (칼로리 추정을 위해 필요)')),
-        );
-      }
-      return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('먹은 음식을 먼저 입력해 주세요.')),
+      );
+      return;
     }
 
-    if (_gptJson != null) return true; // 이미 계산됨
-
-    setState(() => _gptLoading = true);
+    setState(() => _aiLoading = true);
     try {
       final resp = await http.post(
         Uri.parse('$serverUrl/calc-calories'),
@@ -90,31 +72,30 @@ class _DietPageState extends State<DietPage> {
 
       if (resp.statusCode == 200) {
         final json = jsonDecode(resp.body) as Map<String, dynamic>;
-        setState(() => _gptJson = json);
-        return true;
+        final total = (json['total_kcal'] as num?)?.round();
+        if (total == null) throw '모델이 total_kcal을 반환하지 않았습니다.';
+
+        setState(() {
+          _manualKcalC.text = total.toString(); // 입력칸 자동 채움
+          _totalFromAI = true; // 출처 표시
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('AI 추정: 약 $total kcal')),
+        );
       } else {
-        debugPrint('ensure gpt error: ${resp.statusCode} ${resp.body}');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('칼로리 추정 실패(${resp.statusCode}). 다시 시도해 주세요.')),
-          );
-        }
-        return false;
+        throw 'HTTP ${resp.statusCode}';
       }
     } catch (e) {
-      debugPrint('ensure gpt exception: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('칼로리 추정 중 오류: $e')),
-        );
-      }
-      return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('AI 추정 실패: $e\n직접 칼로리를 입력해 주세요.')),
+      );
     } finally {
-      if (mounted) setState(() => _gptLoading = false);
+      if (mounted) setState(() => _aiLoading = false);
     }
   }
 
-  // ===== 저장: (자동 GPT) + Storage 업로드 + Firestore 기록 =====
+  // ===== 저장: 총칼로리 입력란의 숫자만 사용 =====
   Future<void> _saveMeal() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -128,73 +109,58 @@ class _DietPageState extends State<DietPage> {
     final foodsText = _foodsController.text.trim();
     final foods = foodsText.isEmpty
         ? <String>[]
-        : foodsText
-        .split(',')
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .toList();
+        : foodsText.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
 
     if (foods.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('음식 입력이 필요합니다. (저장 시 자동 칼로리 추정)')),
+        const SnackBar(content: Text('음식 입력이 필요합니다.')),
       );
       return;
     }
 
-    // 저장 전에 GPT 추정 보장
-    final ok = await _ensureGptKcal();
-    if (!ok) return;
+    final totalKcal = int.tryParse(_manualKcalC.text.trim());
+    if (totalKcal == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('총 칼로리를 입력하거나, “AI로 채우기”를 눌러 주세요.')),
+      );
+      return;
+    }
 
     setState(() => _saving = true);
     try {
       final dateKey = _dateKey(_selectedDate);
       final docId = DateTime.now().millisecondsSinceEpoch.toString();
 
-      String? photoUrl;
-      String? storagePath;
-
-      if (_selectedImage != null) {
-        storagePath = 'users/$uid/diet/$dateKey/$docId.jpg';
-        final ref = FirebaseStorage.instance.ref().child(storagePath);
-        await ref.putFile(_selectedImage!);
-        photoUrl = await ref.getDownloadURL();
-      }
-
       final data = {
-        'date': Timestamp.fromDate(
-            DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day)),
+        'date': Timestamp.fromDate(DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day)),
         'dateKey': dateKey,
         'mealType': _mealType,
         'foods': foods,
-        'photoUrl': photoUrl,
-        'photoPath': storagePath,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
-        'gptTotalKcal': _gptJson?['total_kcal'],
-        'gptItems': _gptJson?['items'],
+
+        // 단일 키 스키마
+        'totalKcal': totalKcal,
+        'kcalSource': _totalFromAI ? 'ai' : 'manual',
       };
 
       await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .collection('diet')
-          .doc(dateKey)
-          .collection('entries')
-          .doc(docId)
+          .collection('users').doc(uid)
+          .collection('diet').doc(dateKey)
+          .collection('entries').doc(docId)
           .set(data);
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('칼로리와 함께 저장되었습니다.')),
+        SnackBar(content: Text('$totalKcal kcal로 저장되었습니다.')),
       );
 
       setState(() {
-        _selectedImage = null;
         _foodsController.clear();
-        _gptJson = null; // 다음 입력을 위해 초기화
+        _manualKcalC.clear();
+        _totalFromAI = false;
       });
     } catch (e) {
-      debugPrint('saveMeal error: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('저장 중 오류: $e')),
@@ -204,7 +170,7 @@ class _DietPageState extends State<DietPage> {
     }
   }
 
-  // ===== 입력 칩 미리보기 (개별 삭제 가능) =====
+  // ===== 입력 칩 미리보기 =====
   Widget _foodsChipsPreview() {
     final foods = _foodsController.text
         .split(',')
@@ -235,63 +201,6 @@ class _DietPageState extends State<DietPage> {
     );
   }
 
-  // ===== GPT 결과 뷰 (요약 뱃지 + 로딩바) =====
-  Widget _gptResultView() {
-    if (_gptJson == null) return const SizedBox.shrink();
-    final items = (_gptJson!['items'] as List? ?? []).cast<dynamic>();
-    final total = _gptJson!['total_kcal'];
-
-    return Container(
-      margin: const EdgeInsets.only(top: 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(999),
-                  color: Theme.of(context).colorScheme.primaryContainer,
-                ),
-                child: Text(
-                  '${total ?? '-'} kcal',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onPrimaryContainer,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              const Text('추정 결과', style: TextStyle(fontWeight: FontWeight.w600)),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ...items.map((e) {
-            final name = e['name'];
-            final grams = e['grams'];
-            final kcal = e['kcal'];
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Row(
-                children: [
-                  Expanded(child: Text(name ?? '-')),
-                  Text('${grams ?? "?"} g  ·  ${kcal ?? "?"} kcal'),
-                ],
-              ),
-            );
-          }),
-        ],
-      ),
-    );
-  }
-
   // ===== UI 파츠 =====
   Widget _mealTypeChips() {
     final types = {
@@ -317,7 +226,7 @@ class _DietPageState extends State<DietPage> {
   Widget build(BuildContext context) {
     final dateKey = _dateKey(_selectedDate);
     final foodsText = _foodsController.text.trim();
-    final canSave = foodsText.isNotEmpty || _selectedImage != null;
+    final canSave = foodsText.isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(
@@ -341,66 +250,12 @@ class _DietPageState extends State<DietPage> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // ===== (오늘 총합 칼로리) 헤더 뱃지 =====
+            // 오늘 총합 배지
             _DailyTotalKcalBadge(date: _selectedDate),
 
             const SizedBox(height: 12),
 
-            // ===== 사진 카드 =====
-            Card(
-              elevation: 3,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const Text('사진 추가', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 12),
-                    if (_selectedImage != null)
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.file(_selectedImage!, height: 220, fit: BoxFit.cover),
-                      )
-                    else
-                      Container(
-                        height: 120,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.grey.shade300),
-                        ),
-                        child: const Center(child: Text('사진을 추가해 주세요')),
-                      ),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        OutlinedButton.icon(
-                          onPressed: () => _pickImage(ImageSource.camera),
-                          icon: const Icon(Icons.camera_alt),
-                          label: const Text('카메라'),
-                        ),
-                        OutlinedButton.icon(
-                          onPressed: () => _pickImage(ImageSource.gallery),
-                          icon: const Icon(Icons.photo_library_outlined),
-                          label: const Text('갤러리'),
-                        ),
-                        if (_selectedImage != null)
-                          TextButton.icon(
-                            onPressed: () => setState(() => _selectedImage = null),
-                            icon: const Icon(Icons.delete_outline),
-                            label: const Text('삭제'),
-                          ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 12),
-
-            // ===== 기록 + (자동 GPT 포함) 저장 =====
+            // 기록 카드
             Card(
               elevation: 3,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -411,14 +266,15 @@ class _DietPageState extends State<DietPage> {
                   children: [
                     const Text('기록 입력', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 10),
+
                     _mealTypeChips(),
                     const SizedBox(height: 12),
 
-                    // 음식 입력
                     TextField(
                       controller: _foodsController,
                       decoration: InputDecoration(
-                        labelText: '먹은 음식 쉼표로 구분',
+                        labelText: '먹은 음식',
+                        hintText: '먹은 음식 쉼표로 구분',
                         border: const OutlineInputBorder(),
                         suffixIcon: (_foodsController.text.isEmpty)
                             ? null
@@ -426,38 +282,56 @@ class _DietPageState extends State<DietPage> {
                           icon: const Icon(Icons.clear),
                           onPressed: () {
                             _foodsController.clear();
-                            setState(() {}); // 버튼/칩 상태 갱신
+                            setState(() {});
                           },
                         ),
                       ),
                       minLines: 1,
                       maxLines: 3,
-                      onChanged: (_) => setState(() {}), // canSave & 칩 업데이트
+                      onChanged: (_) => setState(() {}),
                     ),
+                    const SizedBox(height: 8),
                     _foodsChipsPreview(),
-
-                    // 로딩바 (자동 GPT 진행 시)
-                    if (_gptLoading)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 8),
-                        child: LinearProgressIndicator(minHeight: 3),
+                    const SizedBox(height: 16), // 3) 총 칼로리 입력 (suffix에 "AI로 채우기", helperText에 상태)
+                    TextField(
+                      controller: _manualKcalC,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: false),
+                      decoration: InputDecoration(
+                        labelText: '총 칼로리',
+                        hintText: '예: 350',
+                        border: const OutlineInputBorder(),
+                        suffix: TextButton(
+                          onPressed: _aiLoading ? null : _runAiEstimation,
+                          style: TextButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            minimumSize: const Size(0, 0),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          child: _aiLoading
+                              ? const SizedBox(
+                              width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Text('AI로 채우기'),
+                        ),
+                        helperText: _totalFromAI ? 'AI 적용됨' : null,
+                        helperStyle: Theme.of(context).textTheme.labelSmall,
                       ),
-
-                    // GPT 결과 미리보기 (저장 전 자동 호출되면 여기에도 나옴)
-                    _gptResultView(),
-
-                    const SizedBox(height: 16),
+                      onChanged: (_) {
+                        if (_totalFromAI) setState(() => _totalFromAI = false);
+                      },
+                    ),
+                    const SizedBox(height: 20), // 4) 저장 버튼(전체 폭)
                     SizedBox(
+                      width: double.infinity,
                       height: 48,
                       child: FilledButton.icon(
-                        onPressed: (_saving || !canSave) ? null : _saveMeal, // ⛳ 저장 = 자동 GPT + 저장
+                        onPressed: (_saving || _foodsController.text.trim().isEmpty) ? null : _saveMeal,
                         icon: _saving
-                            ? const SizedBox(
-                            width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
                             : const Icon(Icons.save_outlined),
-                        label: Text(_saving ? '저장 중…' : '저장하기(칼로리 포함)'),
+                        label: Text(_saving ? '저장 중…' : '저장하기'),
                       ),
                     ),
+
                   ],
                 ),
               ),
@@ -473,7 +347,7 @@ class _DietPageState extends State<DietPage> {
   }
 }
 
-/// 오늘(선택 날짜)의 총 칼로리 배지
+/// 오늘(선택 날짜)의 총 칼로리 배지 — totalKcal만 사용
 class _DailyTotalKcalBadge extends StatelessWidget {
   final DateTime date;
   const _DailyTotalKcalBadge({required this.date});
@@ -502,7 +376,7 @@ class _DailyTotalKcalBadge extends StatelessWidget {
         final docs = snap.data?.docs ?? [];
         int total = 0;
         for (final d in docs) {
-          final t = d.data()['gptTotalKcal'];
+          final t = d.data()['totalKcal'];
           if (t is num) total += t.round();
         }
         return Align(
@@ -527,7 +401,7 @@ class _DailyTotalKcalBadge extends StatelessWidget {
   }
 }
 
-/// 같은 날짜의 기록 + 삭제 기능 포함
+/// 같은 날짜의 기록 + 삭제 기능 — totalKcal만 사용
 class _TodayEntriesPreview extends StatelessWidget {
   final DateTime date;
   const _TodayEntriesPreview({required this.date});
@@ -539,17 +413,17 @@ class _TodayEntriesPreview extends StatelessWidget {
     return '$y-$m-$day';
   }
 
-  Future<void> _confirmAndDelete(BuildContext context, {
-    required String uid,
-    required String dateKey,
-    required String docId,
-    String? photoPath,
-  }) async {
+  Future<void> _confirmAndDelete(
+      BuildContext context, {
+        required String uid,
+        required String dateKey,
+        required String docId,
+      }) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('기록 삭제'),
-        content: const Text('이 식단 기록을 삭제할까요? 사진이 있다면 스토리지에서도 함께 삭제됩니다.'),
+        content: const Text('이 식단 기록을 삭제할까요?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('취소')),
           FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('삭제')),
@@ -559,24 +433,12 @@ class _TodayEntriesPreview extends StatelessWidget {
     if (ok != true) return;
 
     try {
-      // 1) Firestore 문서 삭제
       await FirebaseFirestore.instance
           .collection('users').doc(uid)
           .collection('diet').doc(dateKey)
           .collection('entries').doc(docId)
           .delete();
 
-      // 2) Storage 사진 삭제(있다면)
-      if (photoPath != null && photoPath.isNotEmpty) {
-        try {
-          await FirebaseStorage.instance.ref(photoPath).delete();
-        } catch (e) {
-          // 사진이 이미 없는 경우도 있으니 조용히 무시
-          debugPrint('storage delete skipped: $e');
-        }
-      }
-
-      // 안내
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('삭제되었습니다.')),
       );
@@ -623,10 +485,9 @@ class _TodayEntriesPreview extends StatelessWidget {
               final data = d.data();
               final foods = (data['foods'] as List?)?.cast<String>() ?? [];
               final mealType = (data['mealType'] as String?) ?? 'meal';
-              final photoUrl = (data['photoUrl'] as String?);
-              final photoPath = (data['photoPath'] as String?);
-              final total = data['gptTotalKcal'];
+              final total = data['totalKcal'];
               final docId = d.id;
+              final source = (data['kcalSource'] as String?); // manual | ai
 
               return Dismissible(
                 key: ValueKey(docId),
@@ -641,27 +502,18 @@ class _TodayEntriesPreview extends StatelessWidget {
                 ),
                 direction: DismissDirection.endToStart,
                 confirmDismiss: (_) async {
-                  // 스와이프 전 확인
                   await _confirmAndDelete(
                     context,
                     uid: uid,
                     dateKey: key,
                     docId: docId,
-                    photoPath: photoPath,
                   );
-                  // confirmDismiss에서는 false를 반환해서 카드 자체는 직접 제거하지 않음
-                  // (StreamBuilder가 최신 상태로 다시 그림)
-                  return false;
+                  return false; // StreamBuilder가 다시 그림
                 },
                 child: Card(
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   child: ListTile(
-                    leading: photoUrl == null
-                        ? const CircleAvatar(child: Icon(Icons.restaurant))
-                        : ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.network(photoUrl, width: 56, height: 56, fit: BoxFit.cover),
-                    ),
+                    leading: const CircleAvatar(child: Icon(Icons.restaurant)),
                     title: Row(
                       children: [
                         Expanded(
@@ -670,10 +522,29 @@ class _TodayEntriesPreview extends StatelessWidget {
                             'lunch': '점심',
                             'dinner': '저녁',
                             'snack': '간식',
-                          }[mealType] ?? '식사'),
+                          }[mealType] ??
+                              '식사'),
                         ),
                         if (total != null)
-                          Text('$total kcal', style: Theme.of(context).textTheme.bodySmall),
+                          Row(
+                            children: [
+                              Text('$total kcal', style: Theme.of(context).textTheme.bodySmall),
+                              if (source != null) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(6),
+                                    color: Theme.of(context).colorScheme.surfaceVariant,
+                                  ),
+                                  child: Text(
+                                    source == 'ai' ? 'AI' : '수동',
+                                    style: Theme.of(context).textTheme.labelSmall,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
                       ],
                     ),
                     subtitle: foods.isNotEmpty ? Text('• ${foods.join(", ")}') : null,
@@ -684,7 +555,6 @@ class _TodayEntriesPreview extends StatelessWidget {
                         uid: uid,
                         dateKey: key,
                         docId: docId,
-                        photoPath: photoPath,
                       ),
                     ),
                   ),
