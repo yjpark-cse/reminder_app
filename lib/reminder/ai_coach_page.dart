@@ -218,7 +218,7 @@ class _AICoachPageState extends State<AICoachPage> with WidgetsBindingObserver {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text("<오늘의 활력 메시지>",
+                    const Text("<오늘의 응원 메시지>",
                         style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 10),
                     Text(_dailyMessage, style: const TextStyle(fontSize: 16)),
