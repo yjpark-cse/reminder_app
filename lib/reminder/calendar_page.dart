@@ -4,6 +4,7 @@ import 'package:table_calendar/table_calendar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import 'dart:math' as math;
 
 class CalendarPage extends StatefulWidget {
   const CalendarPage({super.key});
@@ -182,106 +183,142 @@ class _CalendarPageState extends State<CalendarPage> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("건강 캘린더"),
-        actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _onRefresh),
-        ],
-      ),
-      body: Column(
-        children: [
-          TableCalendar(
-            firstDay: DateTime.utc(2025, 1, 1),
-            lastDay: DateTime.utc(2025, 12, 31),
-            focusedDay: _focusedDay,
-            startingDayOfWeek: StartingDayOfWeek.monday,
-            headerStyle: const HeaderStyle(
-              formatButtonVisible: false,
-              titleCentered: true,
-            ),
-            calendarStyle: CalendarStyle(
-              todayDecoration: BoxDecoration(
-                color: theme.colorScheme.primary.withOpacity(0.15),
-                shape: BoxShape.circle,
-              ),
-              selectedDecoration: BoxDecoration(
-                color: theme.colorScheme.primary,
-                shape: BoxShape.circle,
-              ),
-              selectedTextStyle: TextStyle(
-                color: theme.colorScheme.onPrimary,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-            onDaySelected: (selectedDay, focusedDay) {
-              setState(() {
-                _selectedDay = selectedDay;
-                _focusedDay = focusedDay;
-              });
-            },
-            calendarBuilders: CalendarBuilders(
-              defaultBuilder: (context, day, focusedDay) {
-                final dateKey = _dateKey(day);
-                final hasWater = _hasWater(dateKey);
-                final hasTakenMeds = _hasTakenMeds(dateKey);
-                final hasDiet = _hasDiet(dateKey);
+    // (1) 작은 화면에서 과도한 글자 배율로 깨지는 것을 방지
+    final mq = MediaQuery.of(context);
+    final textScale = mq.textScaler.scale(1.0);
+    final clampedScaler = TextScaler.linear(math.min(textScale, 1.0));
 
-                if (hasWater || hasTakenMeds || hasDiet) {
-                  final bg = hasTakenMeds
-                      ? Colors.green[300]
-                      : hasDiet
-                      ? Colors.orange[200]
-                      : Colors.blue[200];
-                  return Container(
-                    margin: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: bg,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    alignment: Alignment.center,
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text('${day.day}',
-                            style: const TextStyle(fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 2),
-                        Row(
+    // (2) 날짜 셀 높이를 화면 크기에 맞게
+    final rowHeight = mq.size.height < 750 ? 42.0 : 48.0;
+
+    return MediaQuery(
+      data: mq.copyWith(textScaler: clampedScaler),
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text("건강 캘린더"),
+          actions: [
+            IconButton(icon: const Icon(Icons.refresh), onPressed: _onRefresh),
+          ],
+        ),
+        body: SafeArea(
+          child: Column(
+            children: [
+              TableCalendar(
+                firstDay: DateTime.utc(2025, 1, 1),
+                lastDay: DateTime.utc(2025, 12, 31),
+                focusedDay: _focusedDay,
+                startingDayOfWeek: StartingDayOfWeek.monday,
+                // 요일/행 높이 보정 — 글자 잘림 방지
+                rowHeight: rowHeight,
+                daysOfWeekHeight: 20,
+                headerStyle: const HeaderStyle(
+                  formatButtonVisible: false,
+                  titleCentered: true,
+                  titleTextStyle: TextStyle(fontSize: 18),
+                ),
+                daysOfWeekStyle: const DaysOfWeekStyle(
+                  weekdayStyle: TextStyle(fontSize: 11, height: 1.1),
+                  weekendStyle: TextStyle(fontSize: 11, height: 1.1),
+                ),
+                calendarStyle: CalendarStyle(
+                  todayDecoration: BoxDecoration(
+                    color: theme.colorScheme.primary.withOpacity(0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  selectedDecoration: BoxDecoration(
+                    color: theme.colorScheme.primary,
+                    shape: BoxShape.circle,
+                  ),
+                  selectedTextStyle: TextStyle(
+                    color: theme.colorScheme.onPrimary,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+                onDaySelected: (selectedDay, focusedDay) {
+                  setState(() {
+                    _selectedDay = selectedDay;
+                    _focusedDay = focusedDay;
+                  });
+                },
+                calendarBuilders: CalendarBuilders(
+                  defaultBuilder: (context, day, focusedDay) {
+                    final dateKey = _dateKey(day);
+                    final hasWater = _hasWater(dateKey);
+                    final hasTakenMeds = _hasTakenMeds(dateKey);
+                    final hasDiet = _hasDiet(dateKey);
+
+                    if (hasWater || hasTakenMeds || hasDiet) {
+                      final bg = hasTakenMeds
+                          ? Colors.green[300]
+                          : hasDiet
+                          ? Colors.orange[200]
+                          : Colors.blue[200];
+                      return Container(
+                        margin: const EdgeInsets.symmetric(
+                            horizontal: 4, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: bg,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        alignment: Alignment.center,
+                        child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            if (hasWater) const Icon(Icons.opacity, size: 12),
-                            if (hasTakenMeds) const Icon(Icons.medication, size: 12),
-                            if (hasDiet) const Icon(Icons.restaurant, size: 12),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${day.day}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                                height: 1.0,
+                              ),
+                            ),
+                            const SizedBox(height: 1),
+                            Wrap(
+                              spacing: 2,
+                              runSpacing: 0,
+                              alignment: WrapAlignment.center,
+                              children: [
+                                if (hasWater)
+                                  const Icon(Icons.opacity, size: 10),
+                                if (hasTakenMeds)
+                                  const Icon(Icons.medication, size: 10),
+                                if (hasDiet)
+                                  const Icon(Icons.restaurant, size: 10),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
                           ],
                         ),
-                      ],
-                    ),
-                  );
-                }
-                return null;
-              },
-            ),
-          ),
-
-          const SizedBox(height: 8),
-
-          Expanded(
-            child: _selectedDay == null
-                ? const Center(child: Text('날짜를 선택해 주세요.'))
-                : RefreshIndicator(
-              onRefresh: _onRefresh,
-              child: ListView(
-                padding: EdgeInsets.only(
-                  left: 8,
-                  right: 8,
-                  bottom: 16 + MediaQuery.of(context).padding.bottom,
+                      );
+                    }
+                    return null;
+                  },
                 ),
-                children: [_buildDetailView(_selectedDay!)],
               ),
-            ),
+
+              const SizedBox(height: 8),
+
+              Expanded(
+                child: _selectedDay == null
+                    ? const Center(child: Text('날짜를 선택해 주세요.'))
+                    : RefreshIndicator(
+                  onRefresh: _onRefresh,
+                  child: ListView(
+                    padding: EdgeInsets.only(
+                      left: 8,
+                      right: 8,
+                      bottom: 16 + MediaQuery.of(context).padding.bottom,
+                    ),
+                    children: [_buildDetailView(_selectedDay!)],
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -338,12 +375,16 @@ class _CalendarPageState extends State<CalendarPage> {
                 ? const Text('복용 완료 기록이 없습니다.')
                 : Wrap(
               spacing: 6,
-              runSpacing: -6,
+              runSpacing: 6, // << 겹침 방지
               children: times
                   .map((t) => Chip(
-                label: Text(t),
+                label: Text(
+                  t,
+                  overflow: TextOverflow.ellipsis,
+                ),
                 visualDensity: VisualDensity.compact,
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                materialTapTargetSize:
+                MaterialTapTargetSize.shrinkWrap,
               ))
                   .toList(),
             ),
@@ -394,10 +435,13 @@ class _CalendarPageState extends State<CalendarPage> {
                       if (foods.isNotEmpty)
                         Wrap(
                           spacing: 6,
-                          runSpacing: -6,
+                          runSpacing: 6, // << 겹침 방지
                           children: foods
                               .map((f) => Chip(
-                            label: Text(f),
+                            label: Text(
+                              f,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                             visualDensity: VisualDensity.compact,
                             materialTapTargetSize:
                             MaterialTapTargetSize.shrinkWrap,
