@@ -1,10 +1,10 @@
+// medicine_register_page.dart (수정본)
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'native_alarm_bridge.dart';
 
 class MedicineRegisterPage extends StatefulWidget {
-  // 수정 모드면 두 값을 함께 전달
   final String? docId;                      // users/{uid}/medicines/{docId}
   final Map<String, dynamic>? initialData;  // {name, medicineId, times, daysIso, createdAt}
 
@@ -75,12 +75,11 @@ class _MedicineRegisterPageState extends State<MedicineRegisterPage> {
 
     await NativeAlarmBridge.requestNotificationPermission();
 
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) {
-      // 익명 로그인
-      await FirebaseAuth.instance.signInAnonymously();
+    final auth = FirebaseAuth.instance;
+    if (auth.currentUser == null) {
+      await auth.signInAnonymously();
     }
-    final realUid = FirebaseAuth.instance.currentUser!.uid;
+    final realUid = auth.currentUser!.uid;
     final medsCol = FirebaseFirestore.instance
         .collection('users').doc(realUid)
         .collection('medicines');
@@ -89,7 +88,6 @@ class _MedicineRegisterPageState extends State<MedicineRegisterPage> {
       // 신규 등록
       final medicineId = DateTime.now().millisecondsSinceEpoch % 1000000;
 
-      // 슬롯별 네이티브 예약
       for (var slot = 0; slot < _times.length; slot++) {
         final t = _times[slot];
         await NativeAlarmBridge.scheduleAlarm(
@@ -101,7 +99,6 @@ class _MedicineRegisterPageState extends State<MedicineRegisterPage> {
         );
       }
 
-      // Firestore 문서 생성 (users/{uid}/medicines)
       await medsCol.add({
         'name': name,
         'medicineId': medicineId,
@@ -112,13 +109,13 @@ class _MedicineRegisterPageState extends State<MedicineRegisterPage> {
         'daysIso': daysIso,
         'createdAt': Timestamp.now(),
         'ownerUid': realUid,
+        'isDeleted': false,
       });
     } else {
       // 수정 저장
       final medicineId =
           _medicineId ?? (DateTime.now().millisecondsSinceEpoch % 1000000);
 
-      // 기존 슬롯 알람 전부 취소 후 재예약
       await NativeAlarmBridge.cancelByMedicine(medicineId);
       for (var slot = 0; slot < _times.length; slot++) {
         final t = _times[slot];
@@ -131,7 +128,6 @@ class _MedicineRegisterPageState extends State<MedicineRegisterPage> {
         );
       }
 
-      // Firestore 문서 갱신 (users/{uid}/medicines/{docId})
       await medsCol.doc(widget.docId).set({
         'name': name,
         'medicineId': medicineId,
@@ -142,6 +138,7 @@ class _MedicineRegisterPageState extends State<MedicineRegisterPage> {
         'daysIso': daysIso,
         'createdAt': widget.initialData?['createdAt'] ?? Timestamp.now(),
         'ownerUid': realUid,
+        'isDeleted': false,
       }, SetOptions(merge: true));
     }
 
@@ -152,60 +149,83 @@ class _MedicineRegisterPageState extends State<MedicineRegisterPage> {
   @override
   Widget build(BuildContext context) {
     const dayLabels = ['월','화','수','목','금','토','일'];
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
     return Scaffold(
       appBar: AppBar(title: Text(widget.docId == null ? '약 등록' : '약 수정')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            TextField(
-              controller: _nameCtrl,
-              decoration: const InputDecoration(labelText: "약 이름"),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                const Text("복용 시간: "),
-                ElevatedButton(onPressed: _addTime, child: const Text("추가")),
-              ],
-            ),
-            Wrap(
-              spacing: 8,
-              children: List.generate(_times.length, (i) {
-                final t = _times[i];
-                return InputChip(
-                  label: Text(t.format(context)),
-                  onDeleted: () => _removeTime(i),
-                );
-              }),
-            ),
-            const SizedBox(height: 12),
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Text('반복 요일', style: TextStyle(fontWeight: FontWeight.bold)),
-            ),
-            Wrap(
-              spacing: 8,
-              children: List.generate(7, (i) {
-                final iso = i + 1;
-                final sel = _daysIso.contains(iso);
-                return ChoiceChip(
-                  label: Text(dayLabels[i]),
-                  selected: sel,
-                  onSelected: (_) {
-                    setState(() {
-                      sel ? _daysIso.remove(iso) : _daysIso.add(iso);
-                    });
-                  },
-                );
-              }),
-            ),
-            const Spacer(),
-            FilledButton(
-              onPressed: _save,
-              child: Text(widget.docId == null ? '저장하기' : '수정 저장'),
-            ),
-          ],
+      // 본문은 스크롤, 버튼은 하단 고정
+      body: SafeArea(
+        child: SingleChildScrollView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomInset),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: _nameCtrl,
+                decoration: const InputDecoration(labelText: "약 이름"),
+                textInputAction: TextInputAction.done,
+              ),
+              const SizedBox(height: 12),
+
+              Row(
+                children: [
+                  const Text("복용 시간: "),
+                  const SizedBox(width: 8),
+                  ElevatedButton(onPressed: _addTime, child: const Text("추가")),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              // Chip 목록이 2~3줄로 늘어나도 세로 간격 유지
+              Wrap(
+                spacing: 8,
+                runSpacing: 8, // ⬅ 추가: 줄 바뀔 때 세로 간격
+                children: List.generate(_times.length, (i) {
+                  final t = _times[i];
+                  return InputChip(
+                    label: Text(t.format(context)),
+                    onDeleted: () => _removeTime(i),
+                  );
+                }),
+              ),
+
+              const SizedBox(height: 16),
+              const Text('반복 요일', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: List.generate(7, (i) {
+                  final iso = i + 1;
+                  final sel = _daysIso.contains(iso);
+                  return ChoiceChip(
+                    label: Text(dayLabels[i]),
+                    selected: sel,
+                    onSelected: (_) {
+                      setState(() {
+                        sel ? _daysIso.remove(iso) : _daysIso.add(iso);
+                      });
+                    },
+                  );
+                }),
+              ),
+              const SizedBox(height: 24),
+            ],
+          ),
+        ),
+      ),
+
+      // ⬇ 키보드 위에 항상 보이는 하단 고정 버튼
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: FilledButton(
+            onPressed: _save,
+            child: Text(widget.docId == null ? '저장하기' : '수정 저장'),
+          ),
         ),
       ),
     );

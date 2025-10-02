@@ -132,16 +132,23 @@ class _MedicinePageState extends State<MedicinePage> {
     required int medicineId,
     required String name,
   }) async {
+    final uid = _uid!;
     // 알람 전부 취소
     await NativeAlarmBridge.cancelByMedicine(medicineId);
-    final uid = _uid!;
-    await FirebaseFirestore.instance
+
+    // 약 문서에 isDeleted: true 추가
+    final docRef = FirebaseFirestore.instance
         .collection('users').doc(uid)
-        .collection('medicines').doc(docId)
-        .delete();
+        .collection('medicines').doc(docId);
+
+    await docRef.set({
+      'isDeleted': true,
+      'deletedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$name 삭제 완료')),
+      SnackBar(content: Text('$name 알림 삭제 완료')),
     );
   }
 
@@ -152,11 +159,10 @@ class _MedicinePageState extends State<MedicinePage> {
     }
     final uid = _uid!;
 
-    // 약 목록
     final medsStream = FirebaseFirestore.instance
         .collection('users').doc(uid)
         .collection('medicines')
-        .orderBy('createdAt', descending: false)
+        .where('isDeleted', isEqualTo: false)
         .snapshots();
 
     return Scaffold(
@@ -164,11 +170,24 @@ class _MedicinePageState extends State<MedicinePage> {
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: medsStream,
         builder: (context, medsSnap) {
+          if (medsSnap.hasError) {
+            return Center(child: Text('오류: ${medsSnap.error}'));
+          }
           if (medsSnap.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          final meds = medsSnap.data?.docs ?? [];
-          if (meds.isEmpty) {
+
+          final medsDocs = (medsSnap.data?.docs ?? []).toList();
+          medsDocs.sort((a, b) {
+            final ta = a.data()['createdAt'] as Timestamp?;
+            final tb = b.data()['createdAt'] as Timestamp?;
+            if (ta == null && tb == null) return 0;
+            if (ta == null) return -1;
+            if (tb == null) return 1;
+            return ta.compareTo(tb); // 오름차순
+          });
+
+          if (medsDocs.isEmpty) {
             return const Center(
               child: Text('등록된 약이 없습니다. 하단 + 버튼으로 등록하세요.'),
             );
@@ -180,10 +199,10 @@ class _MedicinePageState extends State<MedicinePage> {
             builder: (context, checksSnap) {
               final checks = checksSnap.data ?? {};
               return ListView.separated(
-                itemCount: meds.length,
+                itemCount: medsDocs.length,
                 separatorBuilder: (_, __) => const Divider(height: 1),
                 itemBuilder: (context, i) {
-                  final doc = meds[i];
+                  final doc = medsDocs[i];
                   final m = doc.data();
                   final name = (m['name'] as String?) ?? '약';
                   final medicineId = (m['medicineId'] as int?) ?? 0;
